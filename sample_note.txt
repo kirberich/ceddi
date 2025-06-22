@@ -1,0 +1,39 @@
+## Title
+
+x*2 + 5kg
+y = 50km/h to mph
+sum
+
+# Comments are completely ignored even if they contain maths 1+1
+
+exponent = 0.00005
+pi = 3.14159
+z = sqrt(sin(pi) + cos(pi))^exponent
+
+## Results
+x
+y
+z
+
+(1+(1+(1)+(1)))
+
+# Some units
+1 lightyear to km
+1 parsec/fortnight to km/s
+5000 grain to kg
+1carat to g
+10ohm * 5A to V
+9.1m/s^2
+
+# Maths with variables
+x = 50km/h
+y = 5h
+x * y
+
+## Math with section sums
+1
+2
+3
+section_sum = sum
+
+section_sum * 2

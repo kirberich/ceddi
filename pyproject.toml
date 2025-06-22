@@ -1,0 +1,31 @@
+[tool.poetry]
+name = "ceddi"
+version = "0.1.0"
+description = "A note-based calculator"
+authors = ["Rob Kirberich (robert@kirberich.de)"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.12"
+pygobject = "^3.52.3"
+pint = "^0.24.4"
+
+[tool.poetry.scripts]
+ceddi = "ceddi.main:main"
+
+[tool.poetry.group.dev.dependencies]
+ruff = "^0.12.0"
+pygobject-stubs = "^2.13.0"
+pytest = "^8.4.1"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.pyright]
+reportMissingModuleSource = false
+reportUnknownParameterType = "none"
+reportUnusedCallResult = "none"
+reportImplicitOverride = "none"
+reportAny = "none"
+reportExplicitAny = "none"

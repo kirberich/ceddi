@@ -1,0 +1,12 @@
+{
+	"folders": [
+		{
+			"path": ".."
+		}
+	],
+	"settings": {
+		"editor.formatOnSave": true,
+		"python.analysis.typeCheckingMode": "basic",
+		"cursorpyright.analysis.typeCheckingMode": "basic"
+	}
+}
