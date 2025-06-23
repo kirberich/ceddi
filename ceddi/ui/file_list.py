@@ -1,7 +1,8 @@
+import shutil
 from pathlib import Path
 from typing import Callable
 
-from gi.repository import Gio, GObject, Gtk
+from gi.repository import Gdk, Gio, GObject, Gtk
 
 
 class FileListEntry(GObject.GObject):
@@ -59,6 +60,11 @@ class FileList:
             factory=self.item_factory, model=self.selection_model
         )
 
+        # Set up drag and drop
+        drop_target = Gtk.DropTarget.new(Gio.File, Gdk.DragAction.COPY)
+        drop_target.connect("drop", self._on_drop)
+        self.list_view.add_controller(drop_target)
+
     def selected_folder(self) -> Path:
         """Return the currently selected folder."""
         selected_row = self.selection_model.get_selected_item()
@@ -94,21 +100,6 @@ class FileList:
 
         self._on_select(item.path)
 
-    def on_row_released(
-        self,
-        _gesture: Gtk.GestureClick,
-        _n_press: int,
-        _x: float,
-        _y: float,
-        list_item: Gtk.ListItem,
-    ) -> None:
-        """Handler for a click on a row to expand/collapse the parent TreeListRow."""
-        row = list_item.get_item()
-        assert isinstance(row, Gtk.TreeListRow)
-
-        if row.is_expandable():
-            row.set_expanded(not row.get_expanded())
-
     def setup_item(self, _: Gtk.SignalListItemFactory, list_item: Gtk.ListItem) -> None:
         """Setup the widget to show in the list view.
 
@@ -119,9 +110,11 @@ class FileList:
         expander.set_child(Gtk.Label())
         list_item.set_child(expander)
 
-        gesture = Gtk.GestureClick.new()
-        gesture.connect("released", self.on_row_released, list_item)
-        expander.add_controller(gesture)
+        # Set up drag source for dragging files
+        drag_source = Gtk.DragSource.new()
+        drag_source.set_actions(Gdk.DragAction.COPY)
+        drag_source.connect("prepare", self._on_drag_prepare, list_item)
+        expander.add_controller(drag_source)
 
     def bind_item_data(self, _: Gtk.SignalListItemFactory, item: Gtk.ListItem):
         """bind data from the FileListEntry and apply it to the widget."""
@@ -157,6 +150,107 @@ class FileList:
         self.root_nodes.remove_all()
         for item in self.root_path.iterdir():
             self.root_nodes.append(FileListEntry(item))
+
+    def _on_drag_prepare(
+        self,
+        _drag_source: Gtk.DragSource,
+        _x: float,
+        _y: float,
+        list_item: Gtk.ListItem,
+    ) -> Gdk.ContentProvider | None:
+        """Prepare drag operation for a file."""
+
+        row = list_item.get_item()
+        if not isinstance(row, Gtk.TreeListRow):
+            return None
+
+        file_entry = row.get_item()
+        if not isinstance(file_entry, FileListEntry):
+            return None
+
+        gfile = Gio.File.new_for_path(str(file_entry.path))
+        file_list = Gdk.FileList.new_from_list([gfile])
+        return Gdk.ContentProvider.new_for_value(file_list)
+
+    def _on_drop(
+        self, _drop_target: Gtk.DropTarget, value: Gio.File, x: float, y: float
+    ) -> bool:
+        """Handle file drop event."""
+        source_name = value.get_path()
+        if not source_name:
+            return False
+        source_path = Path(source_name)
+        source_dir = source_path.parent
+        print(f"{source_path=} {source_dir=}")
+
+        # Determine target directory based on drop coordinates
+        target_dir = self._get_drop_target_directory(x, y)
+        if target_dir is None or target_dir == source_dir:
+            return False
+
+        # Copy the file to the target directory
+        target_path = target_dir / source_path.name
+
+        # Check for name conflicts
+        if target_path.exists():
+            self._show_error(
+                "Failed to move file",
+                f"File {source_path.name} already exists in {target_dir}",
+            )
+            return False
+
+        try:
+            shutil.move(source_path, target_path)
+        except OSError as e:
+            self._show_error("Failed to move file", str(e))
+            return False
+
+        # Refresh the file list to show the new file
+        self.refresh()
+        return True
+
+    def _get_drop_target_directory(self, x: float, y: float) -> Path | None:
+        """Determine the target directory for a drop operation using hit testing."""
+
+        # Pick the widget at the given coordinates
+        widget = self.list_view.pick(x, y, Gtk.PickFlags.DEFAULT)
+        if widget is None:
+            print("no widget")
+            return None
+
+        # Walk up the widget hierarchy to find the list item
+        current = widget
+
+        # Traverse the widget hierarchy to find the GtkListItemWidge
+        while not (isinstance(current, Gtk.TreeExpander)):
+            if current is None:
+                # Somewhere outside the structure, let's assume the root path
+                return self.root_path
+            current = current.get_parent()
+
+        list_entry = current.get_item()
+        assert isinstance(list_entry, FileListEntry), (
+            f"Expected a FileListEntry, got {type(list_entry)}"
+        )
+
+        # If it's a directory, use it as target; otherwise use its parent
+        if list_entry.path.is_dir():
+            return list_entry.path
+        return list_entry.path.parent
+
+    def _show_error(self, title: str, message: str) -> None:
+        """Show error dialog for file name conflicts."""
+        dialog = Gtk.MessageDialog(
+            transient_for=None,  # We don't have direct access to parent window
+            modal=True,
+            message_type=Gtk.MessageType.ERROR,
+            buttons=Gtk.ButtonsType.OK,
+            text=title,
+            secondary_text=message,
+        )
+
+        dialog.connect("response", lambda d, _r: d.destroy())
+        dialog.show()
 
     def as_widget(self) -> Gtk.ListView:
         self.refresh()
