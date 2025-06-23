@@ -34,7 +34,12 @@ class MainWindow(Gtk.ApplicationWindow):
 
         vbox.append(menu_bar.as_widget())
 
-        hbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        # Create a horizontal paned widget for resizable file list
+        main_paned = Gtk.Paned(orientation=Gtk.Orientation.HORIZONTAL)
+        main_paned.set_resize_start_child(False)  # File list doesn't resize by default
+        main_paned.set_resize_end_child(True)     # Editor area resizes
+        main_paned.set_shrink_start_child(False)  # File list can't shrink below minimum
+        main_paned.set_shrink_end_child(False)    # Editor area can't shrink below minimum
 
         self.file_list = FileList(path, on_select=self.on_file_selected)
         list_view = self.file_list.as_widget()
@@ -42,10 +47,10 @@ class MainWindow(Gtk.ApplicationWindow):
         file_list_scroll = Gtk.ScrolledWindow(vexpand=True)
         file_list_scroll.set_size_request(200, -1)
         file_list_scroll.set_child(list_view)
-        hbox.append(file_list_scroll)
+        main_paned.set_start_child(file_list_scroll)
 
         right_scroll = Gtk.ScrolledWindow(hexpand=True, vexpand=True)
-        hbox.append(right_scroll)
+        main_paned.set_end_child(right_scroll)
 
         editors = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
 
@@ -56,7 +61,7 @@ class MainWindow(Gtk.ApplicationWindow):
         editors.append(self.results.as_widget())
         right_scroll.set_child(editors)
 
-        vbox.append(hbox)
+        vbox.append(main_paned)
         self.set_child(vbox)
 
     def on_file_selected(self, selected: Path) -> None:
