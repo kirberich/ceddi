@@ -1,10 +1,11 @@
+from hmac import new
 from pathlib import Path
 from typing import Any
 
 from gi.repository import Gtk
 
 from .editor import Editor, LoadError
-from .file_view import FileList
+from .file_list import FileList
 from .results import Results
 from .menu_bar import MenuBar
 
@@ -49,18 +50,14 @@ class MainWindow(Gtk.ApplicationWindow):
 
         editors = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
 
-        # Middle - Editor
         self.editor = Editor(on_content_changed=self.on_editor_content_changed)
         editors.append(self.editor.as_widget())
 
-        # Right side - Non-editable TextView
         self.results = Results()
         editors.append(self.results.as_widget())
         right_scroll.set_child(editors)
 
         vbox.append(hbox)
-
-        # Set the child of the window
         self.set_child(vbox)
 
     def on_file_selected(self, selected: Path) -> None:
@@ -91,9 +88,19 @@ class MainWindow(Gtk.ApplicationWindow):
             f.write(content)
 
     def on_new_clicked(self, _button: Gtk.Button) -> None:
-        """Handle New button click."""
-        self.current_file = None
-        self.editor.clear()
+        """When new is clicked, create a new file in the currently selected folder."""
+        current_folder = self.file_list.selected_folder()
+
+        conflicting_files = list(current_folder.glob("new_file*.txt"))
+        if conflicting_files:
+            new_file = current_folder / f"new_file_{len(conflicting_files)}.txt"
+        else:
+            new_file = current_folder / "new_file.txt"
+
+        new_file.touch(exist_ok=False)
+
+        self.file_list.refresh()
+        self.on_file_selected(new_file)
 
     def on_open_folder_clicked(self, _button: Gtk.Button) -> None:
         """Handle Open Folder button click."""
@@ -103,7 +110,10 @@ class MainWindow(Gtk.ApplicationWindow):
         )
         dialog.set_transient_for(self)
         dialog.add_buttons(
-            "_Cancel", Gtk.ResponseType.CANCEL, "_Open", Gtk.ResponseType.OK
+            "_Cancel",
+            Gtk.ResponseType.CANCEL,
+            "_Open",
+            Gtk.ResponseType.OK,
         )
 
         dialog.connect("response", self.on_folder_dialog_response)

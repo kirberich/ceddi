@@ -1,5 +1,4 @@
 from pathlib import Path
-import select
 from typing import Callable
 
 from gi.repository import Gio, GObject, Gtk
@@ -59,6 +58,21 @@ class FileList:
         self.list_view = Gtk.ListView(
             factory=self.item_factory, model=self.selection_model
         )
+
+    def selected_folder(self) -> Path:
+        """Return the currently selected folder."""
+        selected_row = self.selection_model.get_selected_item()
+        if selected_row is None:
+            return self.root_path
+
+        assert isinstance(selected_row, Gtk.TreeListRow), type(selected_row)
+
+        item = selected_row.get_item()
+        assert isinstance(item, FileListEntry)
+
+        if not item.path.is_dir():
+            return item.path.parent
+        return item.path
 
     def set_root_path(self, path: Path) -> None:
         """Set a new root path for the file list."""
