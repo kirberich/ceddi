@@ -68,11 +68,12 @@ class MainWindow(Gtk.ApplicationWindow):
 
     def on_editor_content_changed(self, content: str) -> None:
         """Handle editor content changes."""
-        if not self.current_file:
-            return
 
         print(f"Editor content changed. Length: {len(content)} characters")
         self.results.recalculate(content)
+
+        if not self.current_file:
+            return
 
         with open(self.current_file, "w") as f:
             f.write(content)

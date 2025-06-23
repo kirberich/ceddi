@@ -39,7 +39,10 @@ class FileList:
     ) -> None:
         """Handler for a selection change."""
         selected_row = selection.get_selected_item()
-        assert isinstance(selected_row, Gtk.TreeListRow)
+        if selected_row is None:
+            return
+
+        assert isinstance(selected_row, Gtk.TreeListRow), type(selected_row)
 
         item = selected_row.get_item()
         assert isinstance(item, FileListEntry)
