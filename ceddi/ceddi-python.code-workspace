@@ -6,7 +6,7 @@
 	],
 	"settings": {
 		"editor.formatOnSave": true,
-		"python.analysis.typeCheckingMode": "basic",
-		"cursorpyright.analysis.typeCheckingMode": "basic"
+		"python.analysis.typeCheckingMode": "off",
+		"editor.inlayHints.enabled": "off",
 	}
 }
