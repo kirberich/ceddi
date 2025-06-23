@@ -7,7 +7,6 @@ Each part of the equation is returned as a Quantity object.
 
 """
 
-import datetime
 import math
 import re
 from dataclasses import dataclass
@@ -96,28 +95,28 @@ class ExpressionParser:
     """A parser for mathematical expressions, using the shunting-yard algorithm."""
 
     def _next_token(
-        self, expression: str, offset: int, variables: dict[str, PlainQuantity[float]]
+        self, expression: str, variables: dict[str, PlainQuantity[float]]
     ) -> tuple[Token | None, int]:
         """Returns the next token in the expression, along with the new offset in the expression."""
-        while (char := expression[offset]).isspace():
-            offset += 1
+        if (char := expression[0]).isspace():
+            return None, 1
 
         # Check for a number first
-        if match := NUMBER_RE.match(expression, offset):
+        if match := NUMBER_RE.match(expression):
             return Number(float(match.group(0))), match.end(0)
 
         # Check for operators
         for op_str in SORTED_OPERATORS:
-            if expression.startswith(op_str, offset):
+            if expression.startswith(op_str):
                 op_info = OPERATORS[op_str]
                 return Operator(
                     op=op_str,
                     precedence=cast(int, op_info["precedence"]),
                     assoc=cast(str, op_info["assoc"]),
-                ), offset + len(op_str)
+                ), len(op_str)
 
         # Check for words (functions, variables, units)
-        if match := WORD_RE.match(expression, offset):
+        if match := WORD_RE.match(expression):
             word = match.group(0)
             if word in FUNCTIONS:
                 return Function(word), match.end(0)
@@ -128,11 +127,11 @@ class ExpressionParser:
 
         # Check for parentheses
         if char == "(":
-            return LeftParen(), offset + 1
+            return LeftParen(), 1
         elif char == ")":
-            return RightParen(), offset + 1
+            return RightParen(), 1
         else:
-            raise ParseError(f"Unknown token at position {offset}")
+            raise ParseError(f"Unknown token in {expression}")
 
     def _tokenize(
         self, expression: str, variables: dict[str, PlainQuantity[float]]
@@ -140,11 +139,12 @@ class ExpressionParser:
         """Tokenizes an expression into a list of tokens."""
         tokens: list[Token] = []
         used_variables: set[str] = set()
-        offset = 0
-        while offset < len(expression):
-            token, offset = self._next_token(expression, offset, variables)
+        remainder = expression
+        while remainder:
+            token, length = self._next_token(remainder, variables)
             if token is not None:
                 tokens.append(token)
+            remainder = remainder[length:]
 
         return tokens, used_variables
 
@@ -170,7 +170,7 @@ class ExpressionParser:
         assert isinstance(result, Quantity)
         return result
 
-    def _evaluate(self, rpn_queue: list[Token | str | Quantity]) -> "Quantity":
+    def _evaluate(self, rpn_queue: list[Token | str | Quantity]) -> Quantity:
         stack: list[PlainQuantity[float]] = []
 
         for token in rpn_queue:
@@ -188,9 +188,7 @@ class ExpressionParser:
 
                     if isinstance(stack[-1], Quantity) and stack[-1].dimensionless:
                         # This unit is being applied to a dimensionless number, e.g. "10 km"
-                        stack[-1] = cast(
-                            "Quantity", Quantity(stack[-1].magnitude, unit)
-                        )
+                        stack[-1] = Quantity(stack[-1].magnitude, unit)
                     else:
                         # This could be part of a compound unit (e.g., the 's' in 'km/s'),
                         # or it could be an argument to 'to'.
@@ -211,11 +209,6 @@ class ExpressionParser:
                 if not stack:
                     raise ParseError(f"Not enough arguments for function {token.name}")
                 arg = stack.pop()
-                if isinstance(arg, datetime.datetime):
-                    raise ParseError(
-                        f"Cannot apply function {token.name} to a datetime"
-                    )
-
                 if not arg.dimensionless:
                     raise ParseError(
                         f"Cannot apply function {token.name} to a quantity with units"
