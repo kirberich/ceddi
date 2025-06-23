@@ -60,6 +60,12 @@ class Number:
 
 
 @dataclass(slots=True)
+class Variable:
+    name: str
+    value: PlainQuantity[float]
+
+
+@dataclass(slots=True)
 class Operator:
     op: str
     precedence: int
@@ -82,9 +88,16 @@ class RightParen:
 
 
 ExpressionToken = (
-    Number | Operator | Function | LeftParen | RightParen | Unit | PlainQuantity[float]
+    Number
+    | Variable
+    | Operator
+    | Function
+    | LeftParen
+    | RightParen
+    | Unit
+    | PlainQuantity[float]
 )
-RPNToken = Number | Operator | Function | Unit | PlainQuantity[float]
+RPNToken = Number | Variable | Operator | Function | Unit | PlainQuantity[float]
 
 
 class ParseError(Exception):
@@ -98,7 +111,15 @@ class ExpressionParser:
     def _next_token(
         self, expression: str, variables: dict[str, PlainQuantity[float]]
     ) -> tuple[ExpressionToken | None, int]:
-        """Returns the next token in the expression, along with the new offset in the expression."""
+        """Returns the next token in the expression, along with the length of the consumed token.
+
+        Raises an error if called on an empty string, which would cause an infinite loop as no token can be consumed.
+        """
+        if not expression:
+            raise RuntimeError(
+                "_next_token called with an empty string, this is unsupported."
+            )
+
         if (char := expression[0]).isspace():
             return None, 1
 
@@ -122,7 +143,7 @@ class ExpressionParser:
             if word in FUNCTIONS:
                 return Function(word), len(word)
             elif word in variables:
-                return variables[word], len(word)
+                return Variable(name=word, value=variables[word]), len(word)
             else:
                 try:
                     return registry.Unit(word), len(word)
@@ -148,6 +169,8 @@ class ExpressionParser:
             token, length = self._next_token(remainder, variables)
             if token is not None:
                 tokens.append(token)
+            if isinstance(token, Variable):
+                used_variables.add(token.name)
             remainder = remainder[length:]
 
         return tokens, used_variables
@@ -183,6 +206,8 @@ class ExpressionParser:
                     stack.append(Quantity(token.value, registry.Unit("dimensionless")))
                 case PlainQuantity():
                     stack.append(token)
+                case Variable():
+                    stack.append(token.value)
                 case Unit():
                     if not stack:
                         raise ParseError(f"Unit '{token}' has no magnitude.")
@@ -241,7 +266,7 @@ class ExpressionParser:
         operator_stack: list[Operator | Function | LeftParen | RightParen] = []
 
         for token in tokens:
-            if isinstance(token, (Number, Quantity, Unit)):
+            if isinstance(token, Number | Quantity | Unit | Variable):
                 output_queue.append(token)
             elif isinstance(token, Function):
                 # If the token is a function, push it onto the operator stack.
