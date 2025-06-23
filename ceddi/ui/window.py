@@ -6,6 +6,7 @@ from gi.repository import Gtk
 from .editor import Editor, LoadError
 from .file_view import FileList
 from .results import Results
+from .menu_bar import MenuBar
 
 
 class MainWindow(Gtk.ApplicationWindow):
@@ -15,19 +16,28 @@ class MainWindow(Gtk.ApplicationWindow):
     results: Results
     preview_view: Gtk.TextView
     current_file: Path | None = None
+    file_list: FileList
 
     def __init__(self, path: Path, *args: Any, **kwargs: Any):
         super().__init__(*args, **kwargs)
-
-        # Set up the windowu
-        self.set_title("CEDDI GTK4 App")
+        self.set_title("Ceddi")
         self.set_default_size(800, 600)
         self.set_resizable(True)
 
+        # Create main vertical box to hold menu bar and content
+        vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+
+        menu_bar = MenuBar(
+            on_new_clicked=self.on_new_clicked,
+            on_folder_selected=self.on_open_folder_clicked,
+        )
+
+        vbox.append(menu_bar.as_widget())
+
         hbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
 
-        file_list = FileList(path, on_select=self.on_file_selected)
-        list_view = file_list.as_widget()
+        self.file_list = FileList(path, on_select=self.on_file_selected)
+        list_view = self.file_list.as_widget()
 
         file_list_scroll = Gtk.ScrolledWindow(vexpand=True)
         file_list_scroll.set_size_request(200, -1)
@@ -48,8 +58,10 @@ class MainWindow(Gtk.ApplicationWindow):
         editors.append(self.results.as_widget())
         right_scroll.set_child(editors)
 
+        vbox.append(hbox)
+
         # Set the child of the window
-        self.set_child(hbox)
+        self.set_child(vbox)
 
     def on_file_selected(self, selected: Path) -> None:
         """Load the selected file into the editor."""
@@ -77,3 +89,39 @@ class MainWindow(Gtk.ApplicationWindow):
 
         with open(self.current_file, "w") as f:
             f.write(content)
+
+    def on_new_clicked(self, _button: Gtk.Button) -> None:
+        """Handle New button click."""
+        self.current_file = None
+        self.editor.clear()
+
+    def on_open_folder_clicked(self, _button: Gtk.Button) -> None:
+        """Handle Open Folder button click."""
+        dialog = Gtk.FileChooserDialog(
+            title="Open Folder",
+            action=Gtk.FileChooserAction.SELECT_FOLDER,
+        )
+        dialog.set_transient_for(self)
+        dialog.add_buttons(
+            "_Cancel", Gtk.ResponseType.CANCEL, "_Open", Gtk.ResponseType.OK
+        )
+
+        dialog.connect("response", self.on_folder_dialog_response)
+        dialog.show()
+
+    def on_folder_dialog_response(
+        self, dialog: Gtk.FileChooserDialog, response: int
+    ) -> None:
+        """Handle folder dialog response."""
+        if response == Gtk.ResponseType.OK:
+            folder = dialog.get_file()
+            if not folder:
+                return
+
+            path_name = folder.get_path()
+            assert path_name is not None, "Folder path should not be None"
+
+            folder_path_str = Path(path_name)
+            self.file_list.set_root_path(folder_path_str)
+
+        dialog.destroy()

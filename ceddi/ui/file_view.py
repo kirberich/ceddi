@@ -1,4 +1,5 @@
 from pathlib import Path
+import select
 from typing import Callable
 
 from gi.repository import Gio, GObject, Gtk
@@ -29,10 +30,40 @@ class FileListEntry(GObject.GObject):
 class FileList:
     root_path: Path
     _on_select: Callable[[Path], None]
+    item_factory: Gtk.SignalListItemFactory
+    list_view: Gtk.ListView
+    root_nodes: Gio.ListStore
+    tree_list_model: Gtk.TreeListModel
+    selection_model: Gtk.SingleSelection
 
     def __init__(self, root_path: Path, on_select: Callable[[Path], None]):
         self.root_path = root_path
         self._on_select = on_select
+
+        self.item_factory = Gtk.SignalListItemFactory()
+        self.item_factory.connect("setup", self.setup_item)
+        self.item_factory.connect("bind", self.bind_item_data)
+
+        self.root_nodes = Gio.ListStore.new(FileListEntry)
+        self.tree_list_model = Gtk.TreeListModel.new(
+            self.root_nodes, False, False, self.create_children_for_node
+        )
+
+        self.selection_model = Gtk.SingleSelection(
+            model=self.tree_list_model, autoselect=False, can_unselect=True
+        )
+        self.selection_model.connect("selection-changed", self.on_select)
+        # Start without any files selected
+        self.selection_model.unselect_all()
+
+        self.list_view = Gtk.ListView(
+            factory=self.item_factory, model=self.selection_model
+        )
+
+    def set_root_path(self, path: Path) -> None:
+        """Set a new root path for the file list."""
+        self.root_path = path
+        self.refresh()
 
     def on_select(
         self, selection: Gtk.SingleSelection, _position: int, _n_items: int
@@ -106,28 +137,14 @@ class FileList:
             store.append(child)
         return store
 
-    def as_widget(self) -> Gtk.ListView:
-        factory = Gtk.SignalListItemFactory()
-        factory.connect("setup", self.setup_item)
-        factory.connect("bind", self.bind_item_data)
+    def refresh(self) -> None:
+        """Reload the file list."""
 
-        root_nodes = Gio.ListStore.new(FileListEntry)
-        tree_list_model = Gtk.TreeListModel.new(
-            root_nodes, False, False, self.create_children_for_node
-        )
-
-        # Add the root items
+        self.root_nodes.remove_all()
         for item in self.root_path.iterdir():
-            root_nodes.append(FileListEntry(item))
+            self.root_nodes.append(FileListEntry(item))
 
-        selection_model = Gtk.SingleSelection(
-            model=tree_list_model, autoselect=False, can_unselect=True
-        )
-        list_view = Gtk.ListView(factory=factory, model=selection_model)
+    def as_widget(self) -> Gtk.ListView:
+        self.refresh()
 
-        selection_model.connect("selection-changed", self.on_select)
-
-        # Start without any files selected
-        selection_model.unselect_all()
-
-        return list_view
+        return self.list_view
