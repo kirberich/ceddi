@@ -117,9 +117,14 @@ class FileList:
         for item in self.root_path.iterdir():
             root_nodes.append(FileListEntry(item))
 
-        selection_model = Gtk.SingleSelection(model=tree_list_model)
+        selection_model = Gtk.SingleSelection(
+            model=tree_list_model, autoselect=False, can_unselect=True
+        )
         list_view = Gtk.ListView(factory=factory, model=selection_model)
 
         selection_model.connect("selection-changed", self.on_select)
+
+        # Start without any files selected
+        selection_model.unselect_all()
 
         return list_view

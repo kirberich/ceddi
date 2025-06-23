@@ -53,7 +53,9 @@ class MainWindow(Gtk.ApplicationWindow):
 
     def on_file_selected(self, selected: Path) -> None:
         """Load the selected file into the editor."""
+        print(f"selected {selected}")
         if selected.is_dir():
+            self.current_file = None
             self.editor.clear()
             return
 
@@ -61,15 +63,16 @@ class MainWindow(Gtk.ApplicationWindow):
         try:
             self.editor.load_file(selected)
         except LoadError as e:
+            self.current_file = None
             self.editor.load_text(f"Error loading file {selected}: {e}")
 
     def on_editor_content_changed(self, content: str) -> None:
         """Handle editor content changes."""
-        print(f"Editor content changed. Length: {len(content)} characters")
-        self.results.recalculate(content)
-
         if not self.current_file:
             return
+
+        print(f"Editor content changed. Length: {len(content)} characters")
+        self.results.recalculate(content)
 
         with open(self.current_file, "w") as f:
             f.write(content)
