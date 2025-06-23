@@ -81,9 +81,10 @@ class RightParen:
     pass
 
 
-Token = (
-    Number | Operator | Function | LeftParen | RightParen | str | PlainQuantity[float]
+ExpressionToken = (
+    Number | Operator | Function | LeftParen | RightParen | Unit | PlainQuantity[float]
 )
+RPNToken = Number | Operator | Function | Unit | PlainQuantity[float]
 
 
 class ParseError(Exception):
@@ -96,7 +97,7 @@ class ExpressionParser:
 
     def _next_token(
         self, expression: str, variables: dict[str, PlainQuantity[float]]
-    ) -> tuple[Token | None, int]:
+    ) -> tuple[ExpressionToken | None, int]:
         """Returns the next token in the expression, along with the new offset in the expression."""
         if (char := expression[0]).isspace():
             return None, 1
@@ -119,11 +120,14 @@ class ExpressionParser:
         if match := WORD_RE.match(expression):
             word = match.group(0)
             if word in FUNCTIONS:
-                return Function(word), match.end(0)
+                return Function(word), len(word)
             elif word in variables:
-                return variables[word], match.end(0)
+                return variables[word], len(word)
             else:
-                return word, match.end(0)
+                try:
+                    return registry.Unit(word), len(word)
+                except UndefinedUnitError:
+                    raise ParseError(f"Unknown unit (or undefined variable) {word}")
 
         # Check for parentheses
         if char == "(":
@@ -135,9 +139,9 @@ class ExpressionParser:
 
     def _tokenize(
         self, expression: str, variables: dict[str, PlainQuantity[float]]
-    ) -> tuple[list[Token], set[str]]:
+    ) -> tuple[list[ExpressionToken], set[str]]:
         """Tokenizes an expression into a list of tokens."""
-        tokens: list[Token] = []
+        tokens: list[ExpressionToken] = []
         used_variables: set[str] = set()
         remainder = expression
         while remainder:
@@ -170,59 +174,57 @@ class ExpressionParser:
         assert isinstance(result, Quantity)
         return result
 
-    def _evaluate(self, rpn_queue: list[Token | str | Quantity]) -> Quantity:
+    def _evaluate(self, rpn_queue: list[RPNToken]) -> PlainQuantity[float]:
         stack: list[PlainQuantity[float]] = []
 
         for token in rpn_queue:
-            if isinstance(token, (Number, Quantity)):
-                if isinstance(token, Number):
+            match token:
+                case Number():
                     stack.append(Quantity(token.value, registry.Unit("dimensionless")))
-                else:
+                case PlainQuantity():
                     stack.append(token)
-            elif isinstance(token, str):  # This is a unit or an undefined variable
-                try:
-                    unit = registry.Unit(token)
-
+                case Unit():
                     if not stack:
                         raise ParseError(f"Unit '{token}' has no magnitude.")
 
                     if isinstance(stack[-1], Quantity) and stack[-1].dimensionless:
                         # This unit is being applied to a dimensionless number, e.g. "10 km"
-                        stack[-1] = Quantity(stack[-1].magnitude, unit)
+                        stack[-1] = Quantity(stack[-1].magnitude, token)
                     else:
                         # This could be part of a compound unit (e.g., the 's' in 'km/s'),
                         # or it could be an argument to 'to'.
-                        stack.append(Quantity(1.0, unit))
-
-                except UndefinedUnitError:
-                    raise ParseError(f"Unknown unit or variable: {token}")
-            elif isinstance(token, Operator):
-                if len(stack) < 2:
-                    raise ParseError(f"Not enough arguments for operator {token.op}")
-                right = stack.pop()
-                left = stack.pop()
-                try:
-                    stack.append(self._apply_operator(token, left, right))
-                except DimensionalityError:
-                    raise ParseError(f"Incompatible units for operator {token.op}")
-            elif isinstance(token, Function):
-                if not stack:
-                    raise ParseError(f"Not enough arguments for function {token.name}")
-                arg = stack.pop()
-                if not arg.dimensionless:
-                    raise ParseError(
-                        f"Cannot apply function {token.name} to a quantity with units"
-                    )
-                result_mag = FUNCTIONS[token.name](arg.magnitude)
-                stack.append(Quantity(result_mag, "dimensionless"))
+                        stack.append(Quantity(1.0, token))
+                case Operator():
+                    if len(stack) < 2:
+                        raise ParseError(
+                            f"Not enough arguments for operator {token.op}"
+                        )
+                    right = stack.pop()
+                    left = stack.pop()
+                    try:
+                        stack.append(self._apply_operator(token, left, right))
+                    except DimensionalityError:
+                        raise ParseError(f"Incompatible units for operator {token.op}")
+                case Function():
+                    if not stack:
+                        raise ParseError(
+                            f"Not enough arguments for function {token.name}"
+                        )
+                    arg = stack.pop()
+                    if not arg.dimensionless:
+                        raise ParseError(
+                            f"Cannot apply function {token.name} to a quantity with units"
+                        )
+                    result_mag = FUNCTIONS[token.name](arg.magnitude)
+                    stack.append(Quantity(result_mag, "dimensionless"))
 
         if len(stack) != 1:
             raise ParseError("Invalid expression")
-        return cast("Quantity", stack[0])
+        return stack[0]
 
     def parse(
         self, expression: str, variables: dict[str, PlainQuantity[float]] | None = None
-    ) -> tuple[Quantity, set[str]]:
+    ) -> tuple[PlainQuantity[float], set[str]]:
         """
         Parses a mathematical expression string into a quantity.
 
@@ -234,15 +236,12 @@ class ExpressionParser:
         tokens, used_variables = self._tokenize(expression, variables)
 
         # The output_queue will hold the expression in RPN.
-        output_queue: list[Token | str | Quantity] = []
+        output_queue: list[RPNToken] = []
         # The operator_stack is for handling operators, functions, and parentheses.
-        operator_stack: list[Token] = []
+        operator_stack: list[Operator | Function | LeftParen | RightParen] = []
 
         for token in tokens:
-            if isinstance(token, (Number, Quantity)):
-                output_queue.append(token)
-            elif isinstance(token, str):  # This is a unit or an undefined variable
-                # Units are added to the output queue and will be handled during evaluation.
+            if isinstance(token, (Number, Quantity, Unit)):
                 output_queue.append(token)
             elif isinstance(token, Function):
                 # If the token is a function, push it onto the operator stack.
@@ -257,13 +256,18 @@ class ExpressionParser:
                         or (top.assoc == "R" and token.precedence < top.precedence)
                     )
                 ):
-                    output_queue.append(operator_stack.pop())
+                    top = operator_stack.pop()
+                    assert isinstance(top, Operator)
+                    output_queue.append(top)
+
                 operator_stack.append(token)
             elif isinstance(token, LeftParen):
                 operator_stack.append(token)
             elif isinstance(token, RightParen):
                 while operator_stack and not isinstance(operator_stack[-1], LeftParen):
-                    output_queue.append(operator_stack.pop())
+                    top = operator_stack.pop()
+                    assert isinstance(top, Operator | Function)
+                    output_queue.append(top)
 
                 # If the stack runs out without finding a left parenthesis, there are mismatched parentheses.
                 if not operator_stack or not isinstance(
@@ -274,13 +278,15 @@ class ExpressionParser:
                 # If a function is at the top of the stack, it means the parenthesis
                 # was for a function call, so pop the function to the output queue.
                 if operator_stack and isinstance(operator_stack[-1], Function):
-                    output_queue.append(operator_stack.pop())
+                    top = operator_stack.pop()
+                    assert isinstance(top, Function)
+                    output_queue.append(top)
 
         # After iterating through all tokens, pop any remaining operators from the stack to the output queue.
         while operator_stack:
             op = operator_stack.pop()
-            # If a left parenthesis is found here, it implies mismatched parentheses.
-            if isinstance(op, LeftParen):
+            # If any parentheses are found here, it implies mismatched parentheses.
+            if isinstance(op, LeftParen | RightParen):
                 raise ParseError("Mismatched parentheses")
             output_queue.append(op)
 
